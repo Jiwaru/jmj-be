@@ -1,0 +1,7 @@
+api-jmj.devs.surf {
+	reverse_proxy localhost:8000
+}
+
+jmj.devs.surf {
+	reverse_proxy localhost:3000
+}

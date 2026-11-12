@@ -1,0 +1,58 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: jmj
+      POSTGRES_USER: jmj
+      POSTGRES_PASSWORD: secret
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jmj"]
+      interval: 5s
+      retries: 10
+
+  api:
+    build: .
+    environment:
+      SERVER_NAME: ":80"
+    volumes:
+      - .:/app
+    ports: ["8000:80"]
+    depends_on:
+      db: { condition: service_healthy }
+
+  # Scheduler Laravel — notifikasi tenggat tiap jam (routes/console.php). Image dan kode
+  # sama dengan `api`, cuma perintahnya; tidur hampir sepanjang waktu, bangun tiap menit
+  # mengecek jadwal. Terpisah dari `api` supaya tidak berebut worker dengan request HP.
+  scheduler:
+    build: .
+    command: php artisan schedule:work
+    # Healthcheck bawaan image frankenphp mengetuk server web, yang tidak ada di sini.
+    healthcheck: { disable: true }
+    volumes:
+      - .:/app
+    depends_on:
+      db: { condition: service_healthy }
+    restart: unless-stopped
+
+  # Satu-satunya yang boleh pegang 80/443 di host — API dan FE sama-sama di IP
+  # ini, jadi TLS untuk KEDUA domain diurus di sini, bukan masing-masing app.
+  # network_mode host: biar bisa reverse_proxy ke localhost:3000 (FE, proses/
+  # container terpisah di luar compose ini) tanpa perlu docker network ribet.
+  proxy:
+    image: caddy:2-alpine
+    network_mode: host
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      # Sertifikat & akun ACME — WAJIB persist, kalau tidak tiap restart minta
+      # sertifikat baru lagi ke Let's Encrypt dan kena rate limit (5x/minggu/domain).
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
+volumes:
+  dbdata:
+  caddy_data:
+  caddy_config:
